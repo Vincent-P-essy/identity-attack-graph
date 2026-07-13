@@ -1,0 +1,59 @@
+{
+  "UserDetailList": [
+    {
+      "UserName": "developer",
+      "Arn": "arn:aws:iam::111122223333:user/developer",
+      "GroupList": ["developers"],
+      "UserPolicyList": [
+        {
+          "PolicyName": "deploy",
+          "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": {
+              "Effect": "Allow",
+              "Action": ["lambda:UpdateFunctionCode"],
+              "Resource": "arn:aws:lambda:eu-west-3:111122223333:function:payroll-api"
+            }
+          }
+        }
+      ],
+      "AttachedManagedPolicies": []
+    }
+  ],
+  "GroupDetailList": [
+    {
+      "GroupName": "developers",
+      "GroupPolicyList": [
+        {
+          "PolicyName": "observe",
+          "PolicyDocument": {
+            "Statement": [
+              {
+                "Effect": "Allow",
+                "Action": "lambda:ListFunctions",
+                "Resource": "*"
+              }
+            ]
+          }
+        }
+      ],
+      "AttachedManagedPolicies": []
+    }
+  ],
+  "RoleDetailList": [
+    {
+      "RoleName": "payroll-runtime",
+      "Arn": "arn:aws:iam::111122223333:role/payroll-runtime",
+      "AssumeRolePolicyDocument": {
+        "Statement": {
+          "Effect": "Allow",
+          "Principal": {"Service": "lambda.amazonaws.com"},
+          "Action": "sts:AssumeRole"
+        }
+      },
+      "RolePolicyList": [],
+      "AttachedManagedPolicies": []
+    }
+  ],
+  "Policies": []
+}

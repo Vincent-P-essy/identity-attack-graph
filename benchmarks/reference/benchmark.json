@@ -1,0 +1,18 @@
+{
+  "actual_paths": 7,
+  "deterministic": true,
+  "environment": {
+    "platform": "Linux-5.15.0-185-generic-x86_64-with-glibc2.35",
+    "python": "3.12.13"
+  },
+  "environment_sha256": "442c73f8bf9aa46dae9f4bc3ae6ec515d9efb88814571a1a505a21f2f59420cf",
+  "expected_paths": 7,
+  "ground_truth_sha256": "ff334cdefee67e38c9a35d8c00329085b0dd8310d73a124a418d91f50ddd20ac",
+  "iterations": 100,
+  "latency_p50_ms": 1.546,
+  "latency_p95_ms": 2.608,
+  "path_precision": 1.0,
+  "path_recall": 1.0,
+  "report_sha256": "ddee18347b4e25d4cad8f774093ccca6122e9ffd91cadc1815e0f1216b750ada",
+  "schema_version": "1.0"
+}

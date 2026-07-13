@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Identity Attack Graph</title>
+    <link rel="stylesheet" href="/assets/style.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">AWS IAM × KUBERNETES RBAC</p>
+        <h1>Permissions become paths.<br><span>Paths become decisions.</span></h1>
+        <p class="intro">Every edge names the permission, trust relationship, workload,
+          and confidence that made it reachable.</p>
+      </header>
+      <section class="metrics">
+        <article><span>Attack paths</span><strong id="path-count">—</strong></article>
+        <article><span>Aggregate risk</span><strong id="risk">—</strong></article>
+        <article><span>Crown jewels</span><strong id="targets">—</strong></article>
+        <article><span>Analysis</span><strong id="latency">—</strong></article>
+      </section>
+      <section class="layout">
+        <div class="panel graph-panel">
+          <div class="panel-title"><h2>Reachability map</h2><span id="legend">identity → capability → target</span></div>
+          <svg id="graph" viewBox="0 0 900 520" role="img" aria-label="Identity attack graph"></svg>
+        </div>
+        <aside class="panel">
+          <h2>What-if permission removal</h2>
+          <label for="statement">Statement / rule</label>
+          <select id="statement">
+            <option value="delegator-bind-cluster-admin=bind">Remove cluster-admin bind</option>
+            <option value="dev-lambda-deploy=lambda:UpdateFunctionCode">Remove Lambda update</option>
+            <option value="payroll-developer-create-pods=create">Remove pod creation</option>
+          </select>
+          <button id="simulate">Recalculate</button>
+          <div id="what-if" class="what-if">Choose a permission to see eliminated paths and broken business operations.</div>
+        </aside>
+      </section>
+      <section class="panel">
+        <h2>Highest-risk paths</h2>
+        <div class="table-wrap"><table><thead><tr><th>Entrypoint</th><th>Target</th><th>Risk</th><th>Evidence path</th></tr></thead><tbody id="paths"></tbody></table></div>
+      </section>
+    </main>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,327 @@
+{
+  "schema_version": "1.0",
+  "name": "banking-platform-identity-lab",
+  "identities": [
+    {
+      "id": "aws:user:developer",
+      "provider": "aws",
+      "kind": "user",
+      "name": "developer",
+      "arn": "arn:aws:iam::111122223333:user/developer",
+      "groups": ["aws:group:developers"],
+      "policies": [
+        {
+          "id": "dev-lambda-deploy",
+          "effect": "Allow",
+          "actions": ["lambda:UpdateFunctionCode", "lambda:InvokeFunction"],
+          "resources": ["arn:aws:lambda:eu-west-3:111122223333:function:payroll-api"],
+          "source": "user/developer"
+        },
+        {
+          "id": "dev-assume-audit",
+          "effect": "Allow",
+          "actions": ["sts:AssumeRole"],
+          "resources": ["arn:aws:iam::111122223333:role/security-audit"],
+          "source": "user/developer"
+        },
+        {
+          "id": "dev-deny-secrets",
+          "effect": "Deny",
+          "actions": ["secretsmanager:GetSecretValue"],
+          "resources": ["*"],
+          "source": "user/developer"
+        }
+      ],
+      "permissions_boundary": [
+        {
+          "id": "developer-boundary",
+          "effect": "Allow",
+          "actions": ["lambda:*", "sts:AssumeRole", "logs:*"],
+          "resources": ["*"],
+          "source": "boundary/developer"
+        }
+      ]
+    },
+    {
+      "id": "aws:user:ci-runner",
+      "provider": "aws",
+      "kind": "user",
+      "name": "ci-runner",
+      "arn": "arn:aws:iam::111122223333:user/ci-runner",
+      "policies": [
+        {
+          "id": "ci-pass-deployment-role",
+          "effect": "Allow",
+          "actions": ["iam:PassRole"],
+          "resources": ["arn:aws:iam::111122223333:role/deployment-runtime"],
+          "conditions": {
+            "StringEquals": {
+              "iam:PassedToService": "lambda.amazonaws.com"
+            }
+          },
+          "source": "user/ci-runner"
+        },
+        {
+          "id": "ci-create-function",
+          "effect": "Allow",
+          "actions": ["lambda:CreateFunction", "lambda:InvokeFunction"],
+          "resources": ["*"],
+          "source": "user/ci-runner"
+        }
+      ]
+    },
+    {
+      "id": "aws:role:payroll-runtime",
+      "provider": "aws",
+      "kind": "role",
+      "name": "payroll-runtime",
+      "arn": "arn:aws:iam::111122223333:role/payroll-runtime",
+      "trust_principals": ["lambda.amazonaws.com"],
+      "policies": [
+        {
+          "id": "runtime-read-admin-token",
+          "effect": "Allow",
+          "actions": ["secretsmanager:GetSecretValue"],
+          "resources": ["arn:aws:secretsmanager:eu-west-3:111122223333:secret:admin-token"],
+          "source": "role/payroll-runtime"
+        }
+      ],
+      "labels": {"privileged": "true"}
+    },
+    {
+      "id": "aws:role:security-audit",
+      "provider": "aws",
+      "kind": "role",
+      "name": "security-audit",
+      "arn": "arn:aws:iam::111122223333:role/security-audit",
+      "trust_principals": ["arn:aws:iam::111122223333:user/developer"],
+      "policies": [
+        {
+          "id": "audit-read-payroll-secret",
+          "effect": "Allow",
+          "actions": ["secretsmanager:GetSecretValue"],
+          "resources": ["arn:aws:secretsmanager:eu-west-3:111122223333:secret:payroll-db"],
+          "source": "role/security-audit"
+        }
+      ]
+    },
+    {
+      "id": "aws:role:deployment-runtime",
+      "provider": "aws",
+      "kind": "role",
+      "name": "deployment-runtime",
+      "arn": "arn:aws:iam::111122223333:role/deployment-runtime",
+      "trust_principals": ["lambda.amazonaws.com"],
+      "policies": [
+        {
+          "id": "deployment-read-payroll-secret",
+          "effect": "Allow",
+          "actions": ["secretsmanager:GetSecretValue"],
+          "resources": ["arn:aws:secretsmanager:eu-west-3:111122223333:secret:payroll-db"],
+          "source": "role/deployment-runtime"
+        }
+      ]
+    },
+    {
+      "id": "k8s:user:developer",
+      "provider": "kubernetes",
+      "kind": "user",
+      "name": "developer"
+    },
+    {
+      "id": "k8s:sa:payroll:web",
+      "provider": "kubernetes",
+      "kind": "service_account",
+      "name": "web",
+      "namespace": "payroll"
+    }
+  ],
+  "groups": [
+    {
+      "id": "aws:group:developers",
+      "provider": "aws",
+      "name": "developers",
+      "policies": [
+        {
+          "id": "developers-observability",
+          "effect": "Allow",
+          "actions": ["lambda:ListFunctions", "logs:GetLogEvents"],
+          "resources": ["*"],
+          "source": "group/developers"
+        }
+      ]
+    }
+  ],
+  "resources": [
+    {
+      "id": "aws:lambda:payroll-api",
+      "provider": "aws",
+      "kind": "lambda_function",
+      "name": "payroll-api",
+      "arn": "arn:aws:lambda:eu-west-3:111122223333:function:payroll-api",
+      "execution_role": "aws:role:payroll-runtime",
+      "impact": 55
+    },
+    {
+      "id": "aws:secret:payroll-db",
+      "provider": "aws",
+      "kind": "secret",
+      "name": "payroll-db",
+      "arn": "arn:aws:secretsmanager:eu-west-3:111122223333:secret:payroll-db",
+      "impact": 92,
+      "crown_jewel": true
+    },
+    {
+      "id": "aws:secret:admin-token",
+      "provider": "aws",
+      "kind": "secret",
+      "name": "admin-token",
+      "arn": "arn:aws:secretsmanager:eu-west-3:111122223333:secret:admin-token",
+      "impact": 100,
+      "crown_jewel": true
+    },
+    {
+      "id": "k8s:secret:payroll:database",
+      "provider": "kubernetes",
+      "kind": "k8s_secret",
+      "name": "database",
+      "namespace": "payroll",
+      "impact": 90,
+      "crown_jewel": true
+    },
+    {
+      "id": "k8s:pod:payroll:web-0",
+      "provider": "kubernetes",
+      "kind": "pod",
+      "name": "web-0",
+      "namespace": "payroll",
+      "service_account": "k8s:sa:payroll:web",
+      "impact": 45
+    },
+    {
+      "id": "k8s:host:worker-1",
+      "provider": "kubernetes",
+      "kind": "k8s_host",
+      "name": "worker-1",
+      "impact": 100,
+      "crown_jewel": true
+    }
+  ],
+  "kubernetes_roles": [
+    {
+      "id": "k8s:role:payroll:developer",
+      "name": "developer",
+      "kind": "Role",
+      "namespace": "payroll",
+      "rules": [
+        {
+          "id": "payroll-developer-create-pods",
+          "verbs": ["create"],
+          "api_groups": [""],
+          "resources": ["pods", "pods/exec"]
+        }
+      ]
+    },
+    {
+      "id": "k8s:role:payroll:secret-reader",
+      "name": "secret-reader",
+      "kind": "Role",
+      "namespace": "payroll",
+      "rules": [
+        {
+          "id": "payroll-secret-read",
+          "verbs": ["get"],
+          "api_groups": [""],
+          "resources": ["secrets"],
+          "resource_names": ["database"]
+        }
+      ]
+    },
+    {
+      "id": "k8s:cluster-role:rbac-delegator",
+      "name": "rbac-delegator",
+      "kind": "ClusterRole",
+      "rules": [
+        {
+          "id": "delegator-bind-cluster-admin",
+          "verbs": ["bind"],
+          "api_groups": ["rbac.authorization.k8s.io"],
+          "resources": ["clusterroles"],
+          "resource_names": ["cluster-admin"]
+        },
+        {
+          "id": "delegator-create-cluster-binding",
+          "verbs": ["create"],
+          "api_groups": ["rbac.authorization.k8s.io"],
+          "resources": ["clusterrolebindings"]
+        }
+      ]
+    }
+  ],
+  "kubernetes_bindings": [
+    {
+      "id": "k8s:binding:payroll:developer",
+      "name": "developer",
+      "kind": "RoleBinding",
+      "role_ref": "k8s:role:payroll:developer",
+      "subjects": ["k8s:user:developer"],
+      "namespace": "payroll"
+    },
+    {
+      "id": "k8s:binding:payroll:web-secret-reader",
+      "name": "web-secret-reader",
+      "kind": "RoleBinding",
+      "role_ref": "k8s:role:payroll:secret-reader",
+      "subjects": ["k8s:sa:payroll:web"],
+      "namespace": "payroll"
+    },
+    {
+      "id": "k8s:cluster-binding:developer-delegator",
+      "name": "developer-delegator",
+      "kind": "ClusterRoleBinding",
+      "role_ref": "k8s:cluster-role:rbac-delegator",
+      "subjects": ["k8s:user:developer"]
+    }
+  ],
+  "service_control_policy": [
+    {
+      "id": "scp-full-access-lab",
+      "effect": "Allow",
+      "actions": ["*"],
+      "resources": ["*"],
+      "source": "organization/root"
+    }
+  ],
+  "entrypoints": ["aws:user:developer", "aws:user:ci-runner", "k8s:user:developer"],
+  "targets": [
+    "aws:secret:payroll-db",
+    "aws:secret:admin-token",
+    "k8s:secret:payroll:database",
+    "k8s:host:worker-1",
+    "k8s:privilege:cluster-admin"
+  ],
+  "business_requirements": [
+    {
+      "id": "business-deploy-payroll-lambda",
+      "operation": "Deploy approved payroll releases",
+      "principal": "aws:user:developer",
+      "action": "lambda:UpdateFunctionCode",
+      "resource": "aws:lambda:payroll-api"
+    },
+    {
+      "id": "business-create-payroll-workload",
+      "operation": "Deploy namespaced payroll workloads",
+      "principal": "k8s:user:developer",
+      "action": "create",
+      "resource": "k8s:pod:payroll:web-0",
+      "context": {
+        "resource_type": "pods",
+        "namespace": "payroll"
+      }
+    }
+  ],
+  "metadata": {
+    "source": "synthetic deterministic lab",
+    "kubernetes_privileged_admission": true
+  }
+}

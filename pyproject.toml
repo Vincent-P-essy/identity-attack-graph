@@ -1,0 +1,59 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "identity-attack-graph"
+version = "0.1.0"
+description = "Deterministic AWS IAM and Kubernetes RBAC attack-path analysis"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Vincent Plessy" }]
+dependencies = [
+  "fastapi>=0.139,<1",
+  "pydantic>=2.13,<3",
+  "pyyaml>=6.0,<7",
+  "uvicorn[standard]>=0.51,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx2>=2.5,<3",
+  "mypy>=1.20,<2",
+  "pytest>=8.4,<9",
+  "pytest-cov>=7.1,<8",
+  "ruff>=0.15,<1",
+  "types-pyyaml>=6.0,<7",
+]
+
+[project.scripts]
+identity-graph = "identity_attack_graph.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/identity_attack_graph"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["identity_attack_graph"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF", "S"]
+ignore = ["S101"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["identity_attack_graph"]

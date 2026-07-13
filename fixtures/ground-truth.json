@@ -1,0 +1,41 @@
+{
+  "schema_version": "1.0",
+  "description": "Manually reviewed semantic paths in the synthetic lab fixture.",
+  "paths": [
+    {
+      "entrypoint": "aws:user:developer",
+      "target": "aws:secret:admin-token",
+      "nodes": ["aws:user:developer", "aws:lambda:payroll-api", "aws:role:payroll-runtime", "aws:secret:admin-token"]
+    },
+    {
+      "entrypoint": "aws:user:developer",
+      "target": "aws:secret:payroll-db",
+      "nodes": ["aws:user:developer", "aws:role:security-audit", "aws:secret:payroll-db"]
+    },
+    {
+      "entrypoint": "aws:user:ci-runner",
+      "target": "aws:secret:payroll-db",
+      "nodes": ["aws:user:ci-runner", "aws:role:deployment-runtime", "aws:secret:payroll-db"]
+    },
+    {
+      "entrypoint": "k8s:user:developer",
+      "target": "k8s:privilege:cluster-admin",
+      "nodes": ["k8s:user:developer", "k8s:privilege:cluster-admin"]
+    },
+    {
+      "entrypoint": "k8s:user:developer",
+      "target": "k8s:secret:payroll:database",
+      "nodes": ["k8s:user:developer", "k8s:secret:payroll:database"]
+    },
+    {
+      "entrypoint": "k8s:user:developer",
+      "target": "k8s:secret:payroll:database",
+      "nodes": ["k8s:user:developer", "k8s:sa:payroll:web", "k8s:secret:payroll:database"]
+    },
+    {
+      "entrypoint": "k8s:user:developer",
+      "target": "k8s:host:worker-1",
+      "nodes": ["k8s:user:developer", "k8s:host:worker-1"]
+    }
+  ]
+}
