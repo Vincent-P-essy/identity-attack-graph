@@ -6,6 +6,12 @@ from typing import Literal, TypeAlias
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Scalar: TypeAlias = str | int | float | bool | None
+MAX_IDENTITIES = 2_000
+MAX_GROUPS = 1_000
+MAX_RESOURCES = 5_000
+MAX_KUBERNETES_ROLES = 2_000
+MAX_KUBERNETES_BINDINGS = 5_000
+MAX_POLICY_ITEMS = 512
 
 
 class Provider(StrEnum):
@@ -56,8 +62,8 @@ class PolicyStatement(BaseModel):
 
     id: str = Field(pattern=r"^[A-Za-z0-9_.:/-]+$", min_length=1, max_length=160)
     effect: Effect
-    actions: tuple[str, ...] = Field(min_length=1)
-    resources: tuple[str, ...] = ("*",)
+    actions: tuple[str, ...] = Field(min_length=1, max_length=MAX_POLICY_ITEMS)
+    resources: tuple[str, ...] = Field(default=("*",), max_length=MAX_POLICY_ITEMS)
     conditions: Conditions = Field(default_factory=dict)
     not_actions: tuple[str, ...] = ()
     not_resources: tuple[str, ...] = ()
@@ -68,6 +74,26 @@ class PolicyStatement(BaseModel):
     def reject_blank_patterns(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         if any(not value.strip() for value in values):
             raise ValueError("policy patterns cannot be blank")
+        return values
+
+
+class TrustStatement(BaseModel):
+    """Supported role-trust statement data retained without flattening conditions or denies."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    id: str = Field(pattern=r"^[A-Za-z0-9_.:/-]+$", min_length=1, max_length=200)
+    effect: Effect
+    actions: tuple[str, ...] = Field(min_length=1, max_length=MAX_POLICY_ITEMS)
+    principals: tuple[str, ...] = Field(min_length=1, max_length=MAX_POLICY_ITEMS)
+    conditions: Conditions = Field(default_factory=dict)
+    source: str = "role-trust-policy"
+
+    @field_validator("actions", "principals")
+    @classmethod
+    def reject_blank_values(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not value.strip() for value in values):
+            raise ValueError("trust policy values cannot be blank")
         return values
 
 
@@ -83,7 +109,11 @@ class Identity(BaseModel):
     groups: tuple[str, ...] = ()
     policies: tuple[PolicyStatement, ...] = ()
     permissions_boundary: tuple[PolicyStatement, ...] = ()
+    unresolved_policy_references: tuple[str, ...] = ()
+    unresolved_boundary_reference: str | None = None
     trust_principals: tuple[str, ...] = ()
+    trust_policy: tuple[TrustStatement, ...] = ()
+    unresolved_trust_semantics: tuple[str, ...] = ()
     labels: dict[str, str] = Field(default_factory=dict)
 
 
@@ -94,6 +124,7 @@ class IdentityGroup(BaseModel):
     provider: Provider = Provider.AWS
     name: str
     policies: tuple[PolicyStatement, ...] = ()
+    unresolved_policy_references: tuple[str, ...] = ()
 
 
 class Resource(BaseModel):
@@ -118,10 +149,10 @@ class KubernetesRule(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     id: str
-    verbs: tuple[str, ...] = Field(min_length=1)
-    api_groups: tuple[str, ...] = ("",)
-    resources: tuple[str, ...] = Field(min_length=1)
-    resource_names: tuple[str, ...] = ()
+    verbs: tuple[str, ...] = Field(min_length=1, max_length=MAX_POLICY_ITEMS)
+    api_groups: tuple[str, ...] = Field(default=("",), max_length=MAX_POLICY_ITEMS)
+    resources: tuple[str, ...] = Field(min_length=1, max_length=MAX_POLICY_ITEMS)
+    resource_names: tuple[str, ...] = Field(default=(), max_length=MAX_POLICY_ITEMS)
 
 
 class KubernetesRole(BaseModel):
@@ -177,15 +208,23 @@ class Environment(BaseModel):
 
     schema_version: Literal["1.0"] = "1.0"
     name: str
-    identities: list[Identity] = Field(default_factory=list)
-    groups: list[IdentityGroup] = Field(default_factory=list)
-    resources: list[Resource] = Field(default_factory=list)
-    kubernetes_roles: list[KubernetesRole] = Field(default_factory=list)
-    kubernetes_bindings: list[KubernetesBinding] = Field(default_factory=list)
-    service_control_policy: list[PolicyStatement] = Field(default_factory=list)
-    entrypoints: list[str] = Field(default_factory=list)
-    targets: list[str] = Field(default_factory=list)
-    business_requirements: list[BusinessRequirement] = Field(default_factory=list)
+    identities: list[Identity] = Field(default_factory=list, max_length=MAX_IDENTITIES)
+    groups: list[IdentityGroup] = Field(default_factory=list, max_length=MAX_GROUPS)
+    resources: list[Resource] = Field(default_factory=list, max_length=MAX_RESOURCES)
+    kubernetes_roles: list[KubernetesRole] = Field(
+        default_factory=list, max_length=MAX_KUBERNETES_ROLES
+    )
+    kubernetes_bindings: list[KubernetesBinding] = Field(
+        default_factory=list, max_length=MAX_KUBERNETES_BINDINGS
+    )
+    service_control_policy: list[PolicyStatement] = Field(
+        default_factory=list, max_length=MAX_POLICY_ITEMS
+    )
+    entrypoints: list[str] = Field(default_factory=list, max_length=MAX_IDENTITIES)
+    targets: list[str] = Field(default_factory=list, max_length=MAX_RESOURCES)
+    business_requirements: list[BusinessRequirement] = Field(
+        default_factory=list, max_length=MAX_RESOURCES
+    )
     metadata: dict[str, Scalar] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -197,6 +236,21 @@ class Environment(BaseModel):
         ids += [item.id for item in self.kubernetes_bindings]
         if len(ids) != len(set(ids)):
             raise ValueError("all environment identifiers must be unique")
+        semantic_ids = [
+            statement.id
+            for identity in self.identities
+            for statement in (*identity.policies, *identity.permissions_boundary)
+        ]
+        semantic_ids += [statement.id for group in self.groups for statement in group.policies]
+        semantic_ids += [statement.id for statement in self.service_control_policy]
+        semantic_ids += [
+            statement.id for identity in self.identities for statement in identity.trust_policy
+        ]
+        semantic_ids += [rule.id for role in self.kubernetes_roles for rule in role.rules]
+        if len(semantic_ids) != len(set(semantic_ids)):
+            raise ValueError(
+                "all policy statement, trust statement, and RBAC rule IDs must be unique"
+            )
         return self
 
 

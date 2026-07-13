@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from identity_attack_graph.api import create_app
+from identity_attack_graph.loader import MAX_INPUT_BYTES
 from identity_attack_graph.models import Environment
 
 
@@ -27,6 +28,16 @@ def test_api_report_views_and_security_headers(environment_path: Path) -> None:
     assert findings.json()["findings"]
     assert client.get("/").status_code == 200
     assert client.get("/assets/app.js").status_code == 200
+    assert client.get("/assets/../pyproject.toml").status_code == 404
+
+
+def test_api_default_resources_do_not_depend_on_working_directory(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    client = TestClient(create_app())
+    assert client.get("/healthz").json()["environment"] == "banking-platform-identity-lab"
+    assert client.get("/").status_code == 200
 
 
 def test_api_what_if_and_submitted_environment(
@@ -51,3 +62,25 @@ def test_api_what_if_and_submitted_environment(
     payload["entrypoints"].append("missing")
     rejected = client.post("/v1/analyze", json=payload)
     assert rejected.status_code == 422
+
+    oversized = client.post(
+        "/v1/analyze",
+        content=b"{}",
+        headers={"content-type": "application/json", "content-length": str(MAX_INPUT_BYTES + 1)},
+    )
+    assert oversized.status_code == 413
+    duplicate = client.post(
+        "/v1/what-if",
+        content=(
+            b'{"mutations":[{"statement_id":"x","action":"y"}],'
+            b'"mutations":[{"statement_id":"x","action":"y"}]}'
+        ),
+        headers={"content-type": "application/json"},
+    )
+    assert duplicate.status_code == 400
+    non_finite = client.post(
+        "/v1/analyze",
+        content=b'{"schema_version":"1.0","name":"x","metadata":{"risk":NaN}}',
+        headers={"content-type": "application/json"},
+    )
+    assert non_finite.status_code == 400

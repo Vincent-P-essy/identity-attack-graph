@@ -1,13 +1,13 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling==1.28.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "identity-attack-graph"
-version = "0.1.0"
+version = "0.2.0"
 description = "Deterministic AWS IAM and Kubernetes RBAC attack-path analysis"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 license = { file = "LICENSE" }
 authors = [{ name = "Vincent Plessy" }]
 dependencies = [
@@ -32,6 +32,35 @@ identity-graph = "identity_attack_graph.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/identity_attack_graph"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"fixtures/normalized/lab.json" = "identity_attack_graph/data/lab.json"
+"fixtures/ground-truth.json" = "identity_attack_graph/data/ground-truth.json"
+"uv.lock" = "identity_attack_graph/data/uv.lock"
+"web/app.js" = "identity_attack_graph/web/app.js"
+"web/index.html" = "identity_attack_graph/web/index.html"
+"web/style.css" = "identity_attack_graph/web/style.css"
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "/src",
+  "/tests",
+  "/fixtures",
+  "/web",
+  "/scripts",
+  "/benchmarks",
+  "/docs",
+  "/.github/workflows/ci.yml",
+  "/CONTRIBUTING.md",
+  "/SECURITY.md",
+  "/Dockerfile",
+  "/docker-compose.yml",
+  "/Makefile",
+  "/README.md",
+  "/LICENSE",
+  "/pyproject.toml",
+  "/uv.lock",
+]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-markers --strict-config"

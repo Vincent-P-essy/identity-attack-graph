@@ -19,6 +19,7 @@ from .models import (
     PolicyStatement,
     Provider,
     Resource,
+    TrustStatement,
 )
 
 
@@ -26,6 +27,8 @@ def import_aws_authorization_details(
     payload: dict[str, Any], *, account_id: str
 ) -> tuple[list[Identity], list[IdentityGroup]]:
     """Import the useful subset of IAM GetAccountAuthorizationDetails output."""
+    if payload.get("IsTruncated") in {True, "true", "True"}:
+        raise ValueError("IAM authorization details are truncated; collect every page first")
     managed = _managed_policy_documents(payload.get("Policies", []))
     groups: list[IdentityGroup] = []
     group_ids: dict[str, str] = {}
@@ -33,14 +36,23 @@ def import_aws_authorization_details(
         name = str(raw["GroupName"])
         group_id = f"aws:group:{name}"
         group_ids[name] = group_id
-        policies = _entity_policies(raw, managed, f"group/{name}")
+        policies, unresolved = _entity_policies(raw, managed, f"group/{name}")
         groups.append(
-            IdentityGroup(id=group_id, name=name, policies=tuple(policies), provider=Provider.AWS)
+            IdentityGroup(
+                id=group_id,
+                name=name,
+                policies=tuple(policies),
+                unresolved_policy_references=tuple(unresolved),
+                provider=Provider.AWS,
+            )
         )
 
     identities: list[Identity] = []
     for raw in payload.get("UserDetailList", []):
         name = str(raw["UserName"])
+        source = f"user/{name}"
+        policies, unresolved = _entity_policies(raw, managed, source)
+        boundary, unresolved_boundary = _boundary(raw, managed, source)
         identities.append(
             Identity(
                 id=f"aws:user:{name}",
@@ -51,13 +63,20 @@ def import_aws_authorization_details(
                 groups=tuple(
                     group_ids[item] for item in raw.get("GroupList", []) if item in group_ids
                 ),
-                policies=tuple(_entity_policies(raw, managed, f"user/{name}")),
-                permissions_boundary=tuple(_boundary(raw, managed)),
+                policies=tuple(policies),
+                permissions_boundary=tuple(boundary),
+                unresolved_policy_references=tuple(unresolved),
+                unresolved_boundary_reference=unresolved_boundary,
             )
         )
     for raw in payload.get("RoleDetailList", []):
         name = str(raw["RoleName"])
-        trust = _trust_principals(_document(raw.get("AssumeRolePolicyDocument", {})))
+        source = f"role/{name}"
+        trust_document = _document(raw.get("AssumeRolePolicyDocument", {}))
+        trust = _trust_principals(trust_document)
+        trust_policy, unresolved_trust = _trust_statements(trust_document, f"{source}/trust")
+        policies, unresolved = _entity_policies(raw, managed, source)
+        boundary, unresolved_boundary = _boundary(raw, managed, source)
         identities.append(
             Identity(
                 id=f"aws:role:{name}",
@@ -65,9 +84,13 @@ def import_aws_authorization_details(
                 kind=IdentityKind.ROLE,
                 name=name,
                 arn=str(raw.get("Arn") or f"arn:aws:iam::{account_id}:role/{name}"),
-                policies=tuple(_entity_policies(raw, managed, f"role/{name}")),
-                permissions_boundary=tuple(_boundary(raw, managed)),
+                policies=tuple(policies),
+                permissions_boundary=tuple(boundary),
+                unresolved_policy_references=tuple(unresolved),
+                unresolved_boundary_reference=unresolved_boundary,
                 trust_principals=tuple(trust),
+                trust_policy=tuple(trust_policy),
+                unresolved_trust_semantics=tuple(unresolved_trust),
             )
         )
     return identities, groups
@@ -132,15 +155,24 @@ def import_kubernetes_yaml(
             )
             subject_ids = []
             for raw_subject in document.get("subjects") or []:
+                subject_kind = str(raw_subject.get("kind", ""))
+                if subject_kind not in {"User", "Group", "ServiceAccount"}:
+                    raise ValueError(
+                        f"unsupported Kubernetes binding subject kind: {subject_kind!r}"
+                    )
                 subject = _kubernetes_subject(
-                    str(raw_subject.get("kind", "User")),
+                    subject_kind,
                     str(raw_subject["name"]),
                     str(raw_subject.get("namespace", namespace)),
                 )
                 identities.setdefault(subject.id, subject)
                 subject_ids.append(subject.id)
             role_ref = document.get("roleRef") or {}
-            ref_kind = str(role_ref.get("kind", "Role"))
+            ref_kind = str(role_ref.get("kind", ""))
+            if ref_kind not in {"Role", "ClusterRole"}:
+                raise ValueError(f"unsupported Kubernetes roleRef kind: {ref_kind!r}")
+            if role_ref.get("apiGroup") != "rbac.authorization.k8s.io":
+                raise ValueError("Kubernetes roleRef apiGroup must be rbac.authorization.k8s.io")
             bindings.append(
                 KubernetesBinding(
                     id=binding_id,
@@ -186,6 +218,7 @@ def import_kubernetes_yaml(
                     labels=labels,
                 )
             )
+    _validate_imported_binding_scopes(roles, bindings)
     return list(identities.values()), roles, bindings, resources
 
 
@@ -202,8 +235,9 @@ def import_kubernetes_file(
 
 def _entity_policies(
     raw: dict[str, Any], managed: dict[str, dict[str, Any]], source: str
-) -> list[PolicyStatement]:
+) -> tuple[list[PolicyStatement], list[str]]:
     statements: list[PolicyStatement] = []
+    unresolved: list[str] = []
     inline = (
         raw.get("UserPolicyList") or raw.get("RolePolicyList") or raw.get("GroupPolicyList") or []
     )
@@ -216,13 +250,21 @@ def _entity_policies(
         arn = str(attached.get("PolicyArn", ""))
         if arn in managed:
             statements.extend(_statements(managed[arn], f"{source}/{arn}"))
-    return statements
+        else:
+            unresolved.append(f"{source}:attached-managed-policy:{arn or '<missing-arn>'}")
+    return statements, sorted(set(unresolved))
 
 
-def _boundary(raw: dict[str, Any], managed: dict[str, dict[str, Any]]) -> list[PolicyStatement]:
+def _boundary(
+    raw: dict[str, Any], managed: dict[str, dict[str, Any]], source: str
+) -> tuple[list[PolicyStatement], str | None]:
     boundary = raw.get("PermissionsBoundary") or {}
+    if not boundary:
+        return [], None
     arn = str(boundary.get("PermissionsBoundaryArn", ""))
-    return _statements(managed[arn], f"boundary/{arn}") if arn in managed else []
+    if arn not in managed:
+        return [], f"{source}:permissions-boundary:{arn or '<missing-arn>'}"
+    return _statements(managed[arn], f"{source}/boundary/{arn}"), None
 
 
 def _managed_policy_documents(policies: Iterable[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -288,6 +330,45 @@ def _trust_principals(document: dict[str, Any]) -> list[str]:
     return sorted(set(result))
 
 
+def _trust_statements(
+    document: dict[str, Any], source: str
+) -> tuple[list[TrustStatement], list[str]]:
+    raw_statements = document.get("Statement", [])
+    if isinstance(raw_statements, dict):
+        raw_statements = [raw_statements]
+    statements: list[TrustStatement] = []
+    unresolved: list[str] = []
+    for index, raw in enumerate(raw_statements):
+        statement_id = f"{source}:statement:{index}"
+        if not isinstance(raw, dict):
+            unresolved.append(f"{statement_id}: statement is not an object")
+            continue
+        if raw.get("NotPrincipal") is not None or raw.get("NotAction") is not None:
+            unresolved.append(f"{statement_id}: NotPrincipal/NotAction is unsupported")
+            continue
+        principal = raw.get("Principal")
+        principals: list[str] = []
+        if isinstance(principal, str):
+            principals.append(principal)
+        elif isinstance(principal, dict):
+            for value in principal.values():
+                principals.extend(_tuple(value))
+        if not principals:
+            unresolved.append(f"{statement_id}: Principal is missing or unsupported")
+            continue
+        statements.append(
+            TrustStatement(
+                id=statement_id,
+                effect=Effect(str(raw["Effect"])),
+                actions=_tuple(raw.get("Action", [])),
+                principals=tuple(principals),
+                conditions=raw.get("Condition") or {},
+                source=source,
+            )
+        )
+    return statements, sorted(set(unresolved))
+
+
 def _tuple(value: Any) -> tuple[str, ...]:
     if value is None:
         return ()
@@ -316,3 +397,21 @@ def _kubernetes_subject(kind: str, name: str, namespace: str) -> Identity:
 
 def _role_id(kind: str, name: str, namespace: str) -> str:
     return f"k8s:role:{namespace}:{name}" if kind == "Role" else f"k8s:cluster-role:{name}"
+
+
+def _validate_imported_binding_scopes(
+    roles: list[KubernetesRole], bindings: list[KubernetesBinding]
+) -> None:
+    by_id = {role.id: role for role in roles}
+    for binding in bindings:
+        role = by_id.get(binding.role_ref)
+        if role is None:
+            raise ValueError(f"Kubernetes binding {binding.id} references an unavailable role")
+        if binding.kind == "ClusterRoleBinding" and role.kind != "ClusterRole":
+            raise ValueError(f"ClusterRoleBinding {binding.id} must reference a ClusterRole")
+        if (
+            binding.kind == "RoleBinding"
+            and role.kind == "Role"
+            and role.namespace != binding.namespace
+        ):
+            raise ValueError(f"RoleBinding {binding.id} must reference a Role in its namespace")

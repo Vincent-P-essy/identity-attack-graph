@@ -6,6 +6,7 @@ from identity_attack_graph.models import (
     Environment,
     PermissionDecision,
     PolicyStatement,
+    TrustStatement,
 )
 
 
@@ -71,6 +72,70 @@ def test_assume_role_requires_permission_and_trust(environment: Environment) -> 
     runtime = evaluator.identities["aws:role:payroll-runtime"]
     assert evaluator.can_assume(developer, audit).decision is PermissionDecision.ALLOW
     assert evaluator.can_assume(developer, runtime).decision is not PermissionDecision.ALLOW
+
+
+def test_unresolved_boundary_reference_fails_closed(environment: Environment) -> None:
+    changed = environment.model_copy(deep=True)
+    changed.identities[0] = changed.identities[0].model_copy(
+        update={"unresolved_boundary_reference": "arn:aws:iam::1:policy/missing"}
+    )
+    decision = AwsEvaluator(changed).evaluate(
+        "aws:user:developer",
+        "lambda:UpdateFunctionCode",
+        "arn:aws:lambda:eu-west-3:111122223333:function:payroll-api",
+    )
+    assert decision.decision is PermissionDecision.UNKNOWN
+    assert "unresolved policy reference" in decision.unknown_reasons[0]
+
+
+def test_assume_role_honors_trust_conditions_and_explicit_deny(
+    environment: Environment,
+) -> None:
+    changed = environment.model_copy(deep=True)
+    developer = changed.identities[0]
+    role_index = next(
+        index
+        for index, item in enumerate(changed.identities)
+        if item.id == "aws:role:security-audit"
+    )
+    role = changed.identities[role_index]
+    allow = TrustStatement(
+        id="audit-trust-conditional",
+        effect=Effect.ALLOW,
+        actions=("sts:AssumeRole",),
+        principals=(developer.arn or "",),
+        conditions={"StringEquals": {"sts:ExternalId": "required"}},
+    )
+    changed.identities[role_index] = role.model_copy(
+        update={"trust_policy": (allow,), "trust_principals": ()}
+    )
+    evaluator = AwsEvaluator(changed)
+    assert (
+        evaluator.can_assume(developer, changed.identities[role_index]).decision
+        is not PermissionDecision.ALLOW
+    )
+    assert (
+        evaluator.can_assume(
+            developer, changed.identities[role_index], {"sts:ExternalId": "required"}
+        ).decision
+        is PermissionDecision.ALLOW
+    )
+
+    deny = TrustStatement(
+        id="audit-trust-deny",
+        effect=Effect.DENY,
+        actions=("sts:AssumeRole",),
+        principals=(developer.arn or "",),
+    )
+    changed.identities[role_index] = changed.identities[role_index].model_copy(
+        update={"trust_policy": (allow, deny)}
+    )
+    assert (
+        AwsEvaluator(changed)
+        .can_assume(developer, changed.identities[role_index], {"sts:ExternalId": "required"})
+        .decision
+        is PermissionDecision.EXPLICIT_DENY
+    )
 
 
 def test_unknown_policy_semantics_fail_closed(environment: Environment) -> None:

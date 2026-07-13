@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import fnmatch
 import hashlib
 import time
 from collections.abc import Iterable
 
 from .evaluation import AwsEvaluator, KubernetesEvaluator
 from .graph import AttackGraph, summarize_risk
+from .loader import validate_references
 from .models import (
     AttackPath,
     BusinessRequirement,
@@ -45,6 +45,7 @@ _SENSITIVE_AWS_ACTIONS = {
 
 class Analyzer:
     def __init__(self, environment: Environment) -> None:
+        validate_references(environment)
         self.environment = environment
         self.aws = AwsEvaluator(environment)
         self.kubernetes = KubernetesEvaluator(environment)
@@ -75,8 +76,8 @@ class Analyzer:
         baseline = self.analyze()
         simulated_environment = _apply_mutations(self.environment, request.mutations)
         simulated = Analyzer(simulated_environment).analyze()
-        baseline_paths = {path.id: path for path in baseline.paths}
-        simulated_paths = {path.id: path for path in simulated.paths}
+        baseline_paths = _semantic_paths(baseline)
+        simulated_paths = _semantic_paths(simulated)
         eliminated = sorted(
             (path for key, path in baseline_paths.items() if key not in simulated_paths),
             key=lambda item: (-item.risk, item.id),
@@ -280,10 +281,8 @@ class Analyzer:
         )
 
     def _add_pass_role_edge(self, graph: AttackGraph, principal: Identity, role: Identity) -> None:
-        if not any(
-            fnmatch.fnmatchcase("lambda.amazonaws.com", pattern)
-            for pattern in role.trust_principals
-        ):
+        service_trust = self.aws.trusts_service(role, "lambda.amazonaws.com")
+        if not self._allowed(service_trust):
             return
         role_resource = role.arn or role.id
         pass_role = self.aws.evaluate(
@@ -303,7 +302,16 @@ class Analyzer:
                 effort=3,
                 exploitability=0.78,
                 confidence=0.97,
-                evidence=tuple(sorted(set(pass_role.evidence + create.evidence + invoke.evidence))),
+                evidence=tuple(
+                    sorted(
+                        set(
+                            service_trust.evidence
+                            + pass_role.evidence
+                            + create.evidence
+                            + invoke.evidence
+                        )
+                    )
+                ),
                 techniques=("T1548",),
             )
 
@@ -442,7 +450,7 @@ class Analyzer:
             principal.id,
             "impersonate",
             "groups",
-            api_group="authentication.k8s.io",
+            api_group="",
             resource_name="system:masters",
         )
         if self._allowed(bind) and self._allowed(create_binding):
@@ -469,6 +477,38 @@ class Analyzer:
                 evidence=impersonate.evidence,
                 techniques=("T1134",),
             )
+
+        roles = {item.id: item for item in self.environment.kubernetes_roles}
+        for binding in self.environment.kubernetes_bindings:
+            if binding.kind != "ClusterRoleBinding" or principal.id not in binding.subjects:
+                continue
+            role = roles[binding.role_ref]
+            update_role = self.kubernetes.evaluate(
+                principal.id,
+                "update",
+                "clusterroles",
+                api_group="rbac.authorization.k8s.io",
+                resource_name=role.name,
+            )
+            escalate_role = self.kubernetes.evaluate(
+                principal.id,
+                "escalate",
+                "clusterroles",
+                api_group="rbac.authorization.k8s.io",
+                resource_name=role.name,
+            )
+            if self._allowed(update_role) and self._allowed(escalate_role):
+                graph.add_edge(
+                    source=principal.id,
+                    target=cluster_admin,
+                    kind="escalate_bound_cluster_role",
+                    label=f"Escalate bound ClusterRole {role.name}",
+                    effort=2.2,
+                    exploitability=0.9,
+                    confidence=1,
+                    evidence=tuple(sorted(set(update_role.evidence + escalate_role.evidence))),
+                    techniques=("T1098",),
+                )
 
         privileged_allowed = bool(
             self.environment.metadata.get("kubernetes_privileged_admission", False)
@@ -661,6 +701,19 @@ def _finding(
         evidence=evidence,
         recommendation=recommendation,
     )
+
+
+def _semantic_paths(report: Report) -> dict[tuple[object, ...], AttackPath]:
+    edges = {edge.id: edge for edge in report.edges}
+    return {
+        (
+            path.entrypoint,
+            path.target,
+            path.node_ids,
+            tuple(edges[edge_id].kind for edge_id in path.edge_ids),
+        ): path
+        for path in report.paths
+    }
 
 
 def _apply_mutations(

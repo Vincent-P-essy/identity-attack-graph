@@ -10,5 +10,11 @@ credentials. Run the dashboard on loopback. Treat imported authorization data
 as sensitive even when it contains no secret values: it exposes defensive
 structure and privilege relationships.
 
+Input JSON is size-limited and rejects duplicate keys and non-finite numbers;
+Kubernetes YAML uses the safe loader. Missing authorization documents and
+unsupported semantics fail closed. These controls reduce parser and
+over-granting risk but do not make the unauthenticated local API suitable for
+direct Internet exposure.
+
 The committed account number, addresses, names, and credentials are synthetic.
 Never replace them with production data in a public fork.

@@ -3,7 +3,7 @@
 **Evidence-backed attack paths across AWS IAM and Kubernetes RBAC.**
 
 [![CI](https://github.com/Vincent-P-essy/identity-attack-graph/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Vincent-P-essy/identity-attack-graph/actions/workflows/ci.yml)
-[![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](pyproject.toml)
+[![Python](https://img.shields.io/badge/Python-3.11%E2%80%933.12-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![License](https://img.shields.io/badge/license-MIT-2f6f4e)](LICENSE)
 
 Identity Attack Graph ingests a normalized identity environment, evaluates a
@@ -23,9 +23,12 @@ authorization checks, or a production cloud-security platform.
 |---|---:|---|
 | Expected semantic paths | **7/7 (100% recall)** | Manually reviewed synthetic lab |
 | Unexpected paths | **0 (100% precision)** | Same curated ground truth |
+| Expected evidence-bound edges | **14/14 (100% recall)** | Exact kind, endpoints, and evidence |
+| Unexpected evidence-bound edges | **0 (100% precision)** | Same curated ground truth |
+| Reviewed path and aggregate risks | **All match within 0.001** | Seven paths plus risk summary |
 | Deterministic report hash | **100/100 identical** | Excludes measured elapsed time |
-| Analysis latency p50 / p95 | **1.546 / 2.608 ms** | Local in-process fixture |
-| Test coverage | **93.27%** | Branch-aware source coverage |
+| Analysis latency p50 / p95 | **1.699 / 2.833 ms** | Local in-process fixture |
+| Test coverage | **90.84%** | Branch-aware source coverage |
 
 Timing includes permission evaluation, graph construction, path search,
 findings, centrality, and risk scoring. It excludes cloud collection, HTTP,
@@ -34,25 +37,28 @@ and [reviewed reference run](benchmarks/reference/README.md).
 
 ## What is implemented
 
-- AWS identity and group policies, permission boundaries, organization SCP
+- AWS identity and group policies, permission boundaries, complete supplied SCP
   intersection, wildcard matching, explicit-deny precedence, `StringEquals` and
-  `StringLike` conditions, and role trust checks.
+  `StringLike` conditions, and role trust Allow/Deny/condition checks.
 - Conservative import of the useful subset of IAM
   `GetAccountAuthorizationDetails` output, including inline, attached managed,
-  boundary, and URL-encoded policy documents.
+  boundary, trust, and URL-encoded policy documents. Truncated exports are
+  rejected; unresolved managed policies and boundaries fail closed.
 - Kubernetes `Role`, `ClusterRole`, `RoleBinding`, `ClusterRoleBinding`, users,
   groups, service accounts, namespace scoping, and `resourceNames`.
 - Safe Kubernetes YAML import for identities, roles, bindings, Secrets, and Pods.
-- Compound edges for Lambda code modification, role assumption, `PassRole` via
-  function creation/invocation, Kubernetes `bind`, secret mounting through pod
-  creation, pod exec/service-account pivoting, privileged pod access, and
-  `nodes/proxy`.
+- Compound edges for Lambda code modification, condition-aware role assumption,
+  `PassRole` via function creation/invocation, Kubernetes `bind` and `escalate`,
+  core-API user/group impersonation, secret mounting through pod creation, pod
+  exec/service-account pivoting, privileged pod access, and `nodes/proxy`.
 - Weighted top paths, stable IDs, ATT&CK annotations, evidence retention,
   betweenness centrality, excessive-permission findings, and fail-closed notices.
 - Immediate permission-removal simulation with eliminated/new/surviving paths,
   risk delta, and declared business operations that would stop working.
 - CLI, local API, dependency-free dashboard, JSON/CSV/Markdown/DOT exports,
-  Docker, CI, tests, and reproducible benchmark data.
+  Docker, CI, tests, and reproducible benchmark data. The wheel embeds its lab,
+  ground truth, dashboard, and dependency lock, so default commands work outside
+  the source checkout.
 
 ## Why compound edges matter
 
@@ -89,7 +95,7 @@ invalid state.
 
 ## Quick start
 
-Requirements: Python 3.12 and `uv`.
+Requirements: Python 3.11 or 3.12 and `uv`.
 
 ```bash
 uv sync --frozen --all-extras
@@ -132,14 +138,16 @@ identities are compromised or which data is critical.
 AWS evaluation follows the documented principles that requests are denied by
 default, applicable explicit denies override allows, and boundaries/SCPs reduce
 the effective permission set. The exact supported subset is recorded in
-[`SEMANTICS.md`](docs/SEMANTICS.md). Relevant unsupported constructs make an
-evaluation `unknown` and suppress the edge rather than silently granting it.
+[`SEMANTICS.md`](docs/SEMANTICS.md). Relevant unsupported constructs or
+unresolved policy references make an evaluation `unknown` and suppress the edge
+rather than silently granting it.
 See the official [AWS policy evaluation
 logic](https://docs.aws.amazon.com/IAM/latest/UserGuide/reference_policies_evaluation-logic.html).
 
-Kubernetes RBAC is modeled as additive grants with binding scope. The engine
-also encodes documented escalation risks such as Secret list/watch, workload
-creation, `bind`, and privileged tokens. The rationale follows the official
+Kubernetes RBAC is modeled as additive grants with binding scope. Invalid
+RoleBinding/ClusterRoleBinding role references are rejected. The engine also
+encodes documented escalation risks such as Secret list/watch, workload
+creation, `bind`, `escalate`, impersonation, and privileged tokens. The rationale follows the official
 [RBAC good-practices guide](https://kubernetes.io/docs/concepts/security/rbac-good-practices/).
 
 ## Risk interpretation
@@ -155,8 +163,8 @@ probability**, expected loss, or a control-compliance score.
 - Cross-account AWS evaluation, resource policies other than role trust, session
   policies, RCPs, service-specific condition keys, `NotAction`, and `NotResource`
   are not generally modeled. Relevant unsupported semantics fail closed.
-- The importer does not resolve every AWS managed policy unless its document is
-  present in the export.
+- The importer cannot recover a missing AWS managed-policy or boundary document;
+  it records the unresolved reference and suppresses affected grants.
 - Kubernetes aggregated ClusterRoles, admission webhooks, Pod Security Admission,
   custom authorizers, non-resource URLs, and live API discovery are not modeled.
 - Workload creation and privileged-pod edges encode documented potential, not

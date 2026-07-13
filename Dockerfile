@@ -9,20 +9,19 @@ WORKDIR /app
 RUN python -m pip install uv==0.11.23
 COPY pyproject.toml uv.lock README.md LICENSE ./
 COPY src ./src
+COPY fixtures ./fixtures
+COPY web ./web
 RUN uv sync --frozen --no-dev --no-editable
 
 FROM python:3.12.13-slim-bookworm@sha256:8a7e7cc04fd3e2bd787f7f24e22d5d119aa590d429b50c95dfe12b3abe52f48b
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    IDENTITY_GRAPH_ENVIRONMENT=/app/fixtures/normalized/lab.json
+    PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 RUN groupadd --gid 10001 identitygraph \
     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin identitygraph
 COPY --from=build --chown=10001:10001 /app/.venv /app/.venv
-COPY --chown=10001:10001 fixtures ./fixtures
-COPY --chown=10001:10001 web ./web
 COPY --chown=10001:10001 README.md LICENSE ./
 USER 10001:10001
 EXPOSE 8080

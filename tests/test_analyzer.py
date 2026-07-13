@@ -4,8 +4,11 @@ import pytest
 
 from identity_attack_graph.analyzer import Analyzer
 from identity_attack_graph.models import (
+    Effect,
     Environment,
+    KubernetesRule,
     PermissionMutation,
+    TrustStatement,
     WhatIfRequest,
 )
 
@@ -128,6 +131,80 @@ def test_passrole_without_service_creation_is_not_a_path(environment: Environmen
     assert not any(path.entrypoint == "aws:user:ci-runner" for path in what_if.new_paths)
 
 
+def test_kubernetes_core_impersonation_and_bound_role_escalation_are_complete_edges(
+    environment: Environment,
+) -> None:
+    changed = environment.model_copy(deep=True)
+    role_index = next(
+        index
+        for index, role in enumerate(changed.kubernetes_roles)
+        if role.id == "k8s:cluster-role:rbac-delegator"
+    )
+    role = changed.kubernetes_roles[role_index]
+    changed.kubernetes_roles[role_index] = role.model_copy(
+        update={
+            "rules": (
+                *role.rules,
+                KubernetesRule(
+                    id="delegator-impersonate-system-masters",
+                    verbs=("impersonate",),
+                    api_groups=("",),
+                    resources=("groups",),
+                    resource_names=("system:masters",),
+                ),
+                KubernetesRule(
+                    id="delegator-update-self",
+                    verbs=("update",),
+                    api_groups=("rbac.authorization.k8s.io",),
+                    resources=("clusterroles",),
+                    resource_names=("rbac-delegator",),
+                ),
+                KubernetesRule(
+                    id="delegator-escalate-self",
+                    verbs=("escalate",),
+                    api_groups=("rbac.authorization.k8s.io",),
+                    resources=("clusterroles",),
+                    resource_names=("rbac-delegator",),
+                ),
+            )
+        }
+    )
+    kinds = {edge.kind for edge in Analyzer(changed).analyze().edges}
+    assert "impersonate_system_masters" in kinds
+    assert "escalate_bound_cluster_role" in kinds
+
+
+def test_what_if_uses_stable_semantic_paths_for_redundant_allows(
+    environment: Environment,
+) -> None:
+    payload = environment.model_dump(mode="json")
+    payload["identities"][0]["policies"].append(
+        {
+            "id": "redundant-lambda-deploy",
+            "effect": "Allow",
+            "actions": ["lambda:UpdateFunctionCode", "lambda:InvokeFunction"],
+            "resources": ["arn:aws:lambda:eu-west-3:111122223333:function:payroll-api"],
+            "source": "test/redundant",
+        }
+    )
+    changed = Environment.model_validate(payload)
+    result = Analyzer(changed).what_if(
+        WhatIfRequest(
+            mutations=[
+                PermissionMutation(
+                    statement_id="dev-lambda-deploy", action="lambda:UpdateFunctionCode"
+                ),
+                PermissionMutation(
+                    statement_id="dev-lambda-deploy", action="lambda:InvokeFunction"
+                ),
+            ]
+        )
+    )
+    assert result.eliminated_paths == []
+    assert result.new_paths == []
+    assert result.baseline_risk == result.simulated_risk
+
+
 def test_unsupported_relevant_condition_removes_edge_fail_closed(
     environment: Environment,
 ) -> None:
@@ -146,3 +223,56 @@ def test_unsupported_relevant_condition_removes_edge_fail_closed(
     assert report.unsupported_semantics
     assert not any(edge.kind == "lambda_code_execution" for edge in report.edges)
     assert any(item.category == "unsupported_semantics" for item in report.findings)
+
+
+def test_unresolved_boundary_and_managed_policy_never_create_attack_paths(
+    environment: Environment,
+) -> None:
+    changed = environment.model_copy(deep=True)
+    changed.identities[0] = changed.identities[0].model_copy(
+        update={"unresolved_boundary_reference": "boundary/missing"}
+    )
+    changed.identities[1] = changed.identities[1].model_copy(
+        update={"unresolved_policy_references": ("managed/missing",)}
+    )
+    report = Analyzer(changed).analyze()
+    blocked = {"aws:user:developer", "aws:user:ci-runner"}
+    assert not any(path.entrypoint in blocked for path in report.paths)
+    assert any("unresolved policy reference" in item for item in report.unsupported_semantics)
+
+
+def test_trust_explicit_deny_removes_assume_role_edge(environment: Environment) -> None:
+    changed = environment.model_copy(deep=True)
+    role_index = next(
+        index
+        for index, identity in enumerate(changed.identities)
+        if identity.id == "aws:role:security-audit"
+    )
+    role = changed.identities[role_index]
+    principal = changed.identities[0].arn or ""
+    changed.identities[role_index] = role.model_copy(
+        update={
+            "trust_principals": (),
+            "trust_policy": (
+                TrustStatement(
+                    id="audit-trust-allow",
+                    effect=Effect.ALLOW,
+                    actions=("sts:AssumeRole",),
+                    principals=(principal,),
+                ),
+                TrustStatement(
+                    id="audit-trust-deny",
+                    effect=Effect.DENY,
+                    actions=("sts:AssumeRole",),
+                    principals=(principal,),
+                ),
+            ),
+        }
+    )
+    report = Analyzer(changed).analyze()
+    assert not any(
+        edge.kind == "assume_role"
+        and edge.source == "aws:user:developer"
+        and edge.target == "aws:role:security-audit"
+        for edge in report.edges
+    )

@@ -1,18 +1,61 @@
 {
+  "actual_edges": 14,
   "actual_paths": 7,
+  "actual_risk": {
+    "aggregate_risk": 97.42,
+    "crown_jewels_reachable": 5,
+    "maximum_path_risk": 94.0,
+    "path_count": 7
+  },
   "deterministic": true,
+  "edge_precision": 1.0,
+  "edge_recall": 1.0,
   "environment": {
     "platform": "Linux-5.15.0-185-generic-x86_64-with-glibc2.35",
     "python": "3.12.13"
   },
   "environment_sha256": "3ac16d653ec6bfc999b3b60281af654ed29665ab65f0136afa390906d6845237",
+  "expected_edges": 14,
   "expected_paths": 7,
-  "ground_truth_sha256": "ff334cdefee67e38c9a35d8c00329085b0dd8310d73a124a418d91f50ddd20ac",
+  "expected_risk": {
+    "aggregate_risk": 97.42,
+    "crown_jewels_reachable": 5,
+    "maximum_path_risk": 94.0,
+    "path_count": 7
+  },
+  "false_negatives": {
+    "edges": [],
+    "paths": []
+  },
+  "false_positives": {
+    "edges": [],
+    "paths": []
+  },
+  "ground_truth_schema_version": "1.1",
+  "ground_truth_sha256": "82c814c4716e97c12f4180e1351746b206b04517180119067529623b49a641ff",
   "iterations": 100,
-  "latency_p50_ms": 1.546,
-  "latency_p95_ms": 2.608,
+  "latency_p50_ms": 1.699,
+  "latency_p95_ms": 2.833,
   "path_precision": 1.0,
   "path_recall": 1.0,
-  "report_sha256": "ddee18347b4e25d4cad8f774093ccca6122e9ffd91cadc1815e0f1216b750ada",
-  "schema_version": "1.0"
+  "path_risk_errors": [],
+  "path_risk_matches": true,
+  "provenance": {
+    "analysis_source_sha256": "a5ab973793a0507204c6a98571a53281e12bc3eab49dec763ca211457ed32051",
+    "dependency_lock_sha256": "440cfd0d81352bdb979fde8679fcd924fae418a0e698e661453a7d90d0081648",
+    "package_version": "0.2.0",
+    "runner_platform": "Linux-5.15.0-185-generic-x86_64-with-glibc2.35",
+    "runner_python": "3.12.13",
+    "source_revision": "0268038c64d34971de0337abae552d954f7e91ec",
+    "source_tree_state": "clean"
+  },
+  "report_sha256": "0ceb66541579ae73769b58cb57c467a0f63df5e0c5767f643b540ad5c749b2be",
+  "risk_deltas": {
+    "aggregate_risk": 0.0,
+    "crown_jewels_reachable": 0.0,
+    "maximum_path_risk": 0.0,
+    "path_count": 0.0
+  },
+  "risk_summary_matches": true,
+  "schema_version": "1.1"
 }

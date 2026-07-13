@@ -11,14 +11,14 @@ export files and an operator attempting to overstate what the prototype proves.
 
 | Threat | Controls | Residual risk |
 |---|---|---|
-| false allow from unsupported policy | explicit semantics matrix; relevant unknown suppresses edge | an incorrectly implemented supported construct can still be wrong |
+| false allow from unsupported policy | unresolved managed/boundary/trust data is retained; relevant unknown suppresses edge | an incorrectly implemented supported construct can still be wrong |
 | false escalation from one permission | compound edges require every complementary grant | service-specific prerequisites may remain incomplete |
-| explicit deny ignored | deny pass precedes all allow layers | only supported request context is evaluated |
-| dangling reference changes graph | semantic reference validation | stale but syntactically valid snapshots are possible |
-| parser/resource exhaustion | 10 MiB normalized input limit; strict schema; bounded path depth/count | API body limit and request admission need a reverse proxy |
+| explicit deny ignored | identity, boundary, SCP, and trust Deny passes precede allows | only supported request context is evaluated |
+| dangling reference changes graph | semantic reference and RBAC roleRef/scope validation | stale but syntactically valid snapshots are possible |
+| parser/resource exhaustion | strict JSON, 10 MiB body/file limit, bounded collections/relation checks and path search | a reverse proxy is still required for concurrent admission control |
 | path explosion | simple paths, depth 8, five paths per entrypoint/target | large estates require indexed/streamed analysis |
 | malicious YAML object construction | `yaml.safe_load_all`; no tags or execution | large raw YAML should be size-limited by collection pipeline |
-| HTML/graph injection | browser uses `textContent`; CSP; no CDN or inline script | DOT consumers must apply their own safe-rendering policy |
+| HTML/graph/spreadsheet injection | browser uses `textContent`; CSP; DOT/Markdown/CSV escaping | downstream consumers can still transform safe text unsafely |
 | fabricated probability claim | score named prioritization heuristic; methodology and UI disclaimers | readers can still misinterpret numeric output |
 | what-if hides business outage | each declared operation re-evaluated before/after | undeclared operations cannot be reported |
 

@@ -47,9 +47,7 @@ class AttackGraph:
     ) -> GraphEdge:
         if source not in self.nodes or target not in self.nodes:
             raise ValueError(f"edge references missing node: {source} -> {target}")
-        digest = hashlib.sha256(
-            "\0".join((source, target, kind, *sorted(evidence))).encode()
-        ).hexdigest()[:20]
+        digest = hashlib.sha256("\0".join((source, target, kind)).encode()).hexdigest()[:20]
         edge = GraphEdge(
             id=f"edge-{digest}",
             source=source,
