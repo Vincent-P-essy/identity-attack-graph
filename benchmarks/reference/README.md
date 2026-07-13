@@ -2,8 +2,8 @@
 
 This snapshot preserves a measured analysis of the synthetic lab and binds the
 result to the analyzed package source, dependency lock, and runner. It was
-generated before commit from the dirty working tree based on the revision below;
-CI regenerates the same functional checks from a clean checkout.
+generated from the clean source commit below; CI regenerates the same functional
+checks from a clean checkout.
 
 - Date: 2026-07-13
 - Python: 3.12.13
@@ -19,11 +19,12 @@ CI regenerates the same functional checks from a clean checkout.
   `a5ab973793a0507204c6a98571a53281e12bc3eab49dec763ca211457ed32051`
 - Dependency lock SHA-256:
   `440cfd0d81352bdb979fde8679fcd924fae418a0e698e661453a7d90d0081648`
-- Base source revision:
-  `949b2c752d45b97956e55ff355e32ca1a295de50`
-- Source-tree state: `dirty-working-tree`
+- Source revision:
+  `0268038c64d34971de0337abae552d954f7e91ec`
+- Source-tree state: `clean`
 
 The environment, ground-truth, and dependency-lock hashes are pinned in
 `inputs.sha256`. The benchmark JSON records the package source hash and runner.
+[`BENCHMARK.md`](BENCHMARK.md) is the generated human-readable projection.
 Functional path results should reproduce; timing is machine-specific and is not
 a CI performance gate.

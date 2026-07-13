@@ -34,8 +34,8 @@
   "ground_truth_schema_version": "1.1",
   "ground_truth_sha256": "82c814c4716e97c12f4180e1351746b206b04517180119067529623b49a641ff",
   "iterations": 100,
-  "latency_p50_ms": 1.585,
-  "latency_p95_ms": 1.998,
+  "latency_p50_ms": 1.699,
+  "latency_p95_ms": 2.833,
   "path_precision": 1.0,
   "path_recall": 1.0,
   "path_risk_errors": [],
@@ -46,8 +46,8 @@
     "package_version": "0.2.0",
     "runner_platform": "Linux-5.15.0-185-generic-x86_64-with-glibc2.35",
     "runner_python": "3.12.13",
-    "source_revision": "949b2c752d45b97956e55ff355e32ca1a295de50",
-    "source_tree_state": "dirty-working-tree"
+    "source_revision": "0268038c64d34971de0337abae552d954f7e91ec",
+    "source_tree_state": "clean"
   },
   "report_sha256": "0ceb66541579ae73769b58cb57c467a0f63df5e0c5767f643b540ad5c749b2be",
   "risk_deltas": {

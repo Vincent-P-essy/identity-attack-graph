@@ -27,7 +27,7 @@ authorization checks, or a production cloud-security platform.
 | Unexpected evidence-bound edges | **0 (100% precision)** | Same curated ground truth |
 | Reviewed path and aggregate risks | **All match within 0.001** | Seven paths plus risk summary |
 | Deterministic report hash | **100/100 identical** | Excludes measured elapsed time |
-| Analysis latency p50 / p95 | **1.585 / 1.998 ms** | Local in-process fixture |
+| Analysis latency p50 / p95 | **1.699 / 2.833 ms** | Local in-process fixture |
 | Test coverage | **90.84%** | Branch-aware source coverage |
 
 Timing includes permission evaluation, graph construction, path search,
