@@ -30,6 +30,13 @@ def test_duplicate_ids_are_rejected(environment: Environment) -> None:
         Environment.model_validate(payload)
 
 
+def test_duplicate_semantic_ids_are_rejected(environment: Environment) -> None:
+    payload = environment.model_dump(mode="json")
+    payload["identities"][1]["policies"][0]["id"] = payload["identities"][0]["policies"][0]["id"]
+    with pytest.raises(ValidationError, match=r"statement.*unique"):
+        Environment.model_validate(payload)
+
+
 @pytest.mark.parametrize(
     "mutator, expected",
     [
@@ -71,6 +78,16 @@ def test_loader_rejects_missing_bad_and_oversize_files(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="exceeds"):
         load_environment(large)
 
+    duplicate = tmp_path / "duplicate.json"
+    duplicate.write_text('{"name":"one","name":"two"}', encoding="utf-8")
+    with pytest.raises(ValueError, match="duplicate JSON key"):
+        load_environment(duplicate)
+
+    non_finite = tmp_path / "non-finite.json"
+    non_finite.write_text('{"name":"x","metadata":{"risk":NaN}}', encoding="utf-8")
+    with pytest.raises(ValueError, match="non-finite"):
+        load_environment(non_finite)
+
 
 def test_scope_models_reject_inconsistent_namespace() -> None:
     with pytest.raises(ValidationError, match="requires a namespace"):
@@ -84,6 +101,30 @@ def test_scope_models_reject_inconsistent_namespace() -> None:
             role_ref="r",
             subjects=("s",),
         )
+
+
+def test_reference_validation_rejects_invalid_binding_role_scope(
+    environment: Environment,
+) -> None:
+    payload = environment.model_dump(mode="json")
+    payload["kubernetes_bindings"].append(
+        {
+            "id": "invalid-cluster-binding",
+            "name": "invalid",
+            "kind": "ClusterRoleBinding",
+            "role_ref": "k8s:role:payroll:developer",
+            "subjects": ["k8s:user:developer"],
+        }
+    )
+    invalid_cluster = Environment.model_validate(payload)
+    with pytest.raises(ValueError, match="must reference a ClusterRole"):
+        validate_references(invalid_cluster)
+
+    payload = environment.model_dump(mode="json")
+    payload["kubernetes_bindings"][0]["namespace"] = "other"
+    invalid_namespace = Environment.model_validate(payload)
+    with pytest.raises(ValueError, match="another namespace"):
+        validate_references(invalid_namespace)
 
 
 def test_policy_patterns_cannot_be_blank() -> None:

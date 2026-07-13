@@ -109,3 +109,16 @@ def test_cli_normalize_and_serve(
 def test_cli_mutation_parser_rejects_invalid_syntax() -> None:
     with pytest.raises(ValueError, match="STATEMENT_ID=ACTION"):
         cli._parse_mutation("invalid")
+
+
+def test_cli_packaged_defaults_are_working_directory_independent(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    output = tmp_path / "packaged-benchmark"
+    assert cli.main(["benchmark", "--out", str(output), "--iterations", "1"]) == 0
+    report = json.loads((output / "benchmark.json").read_text(encoding="utf-8"))
+    assert report["edge_precision"] == report["edge_recall"] == 1
+    capsys.readouterr()

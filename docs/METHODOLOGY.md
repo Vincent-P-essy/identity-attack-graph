@@ -4,8 +4,10 @@
 
 The synthetic banking-platform fixture contains three entrypoints and five
 targets across AWS and Kubernetes. Seven semantic paths were reviewed manually
-before benchmarking. Ground truth stores entrypoint, target, and complete node
-sequence rather than implementation-generated IDs.
+before benchmarking, together with fourteen graph edges. Ground truth stores
+each path's entrypoint, target, complete node sequence, ordered edge kinds, and
+expected risk. Each graph edge binds source, target, kind, and exact evidence
+IDs. The expected risk summary is versioned alongside them.
 
 Recall and precision are:
 
@@ -13,6 +15,10 @@ Recall and precision are:
 recall    = reviewed paths emitted / reviewed paths
 precision = reviewed paths emitted / all emitted paths
 ```
+
+The same calculation is applied to evidence-bound edges. The quality gate also
+requires matched path risks and all risk-summary fields to agree within 0.001.
+False-positive and false-negative paths and edges are serialized explicitly.
 
 These metrics describe one curated fixture. They are neither population
 estimates nor evidence that unknown production paths are absent.
@@ -56,4 +62,8 @@ sha256sum --check benchmarks/reference/inputs.sha256
 ```
 
 The reference snapshot records Python, kernel/platform, fixture hashes,
-iterations, deterministic report hash, and latency percentiles.
+iterations, deterministic report hash, and latency percentiles. It also records
+a SHA-256 digest over the analyzed Python sources, the exact `uv.lock` digest,
+package version, source revision/tree-state labels supplied by the runner, and
+the Python/platform runner identity. The committed input checksum file binds the
+environment, ground truth, and dependency lock.

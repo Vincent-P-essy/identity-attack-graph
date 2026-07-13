@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from contextlib import ExitStack
 from pathlib import Path
 
 import uvicorn
@@ -22,11 +23,12 @@ from .models import (
     WhatIfRequest,
 )
 from .reporting import write_report, write_what_if
+from .resources import packaged_path
 
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(prog="identity-graph")
-    root.add_argument("--environment", type=Path, default=Path("fixtures/normalized/lab.json"))
+    root.add_argument("--environment", type=Path)
     commands = root.add_subparsers(dest="command", required=True)
 
     analyze = commands.add_parser("analyze", help="build paths and write an evidence report")
@@ -43,7 +45,7 @@ def parser() -> argparse.ArgumentParser:
     what_if.add_argument("--out", type=Path, default=Path("reports/what-if.json"))
 
     run_benchmark = commands.add_parser("benchmark", help="measure the versioned lab")
-    run_benchmark.add_argument("--truth", type=Path, default=Path("fixtures/ground-truth.json"))
+    run_benchmark.add_argument("--truth", type=Path)
     run_benchmark.add_argument("--out", type=Path, default=Path("reports"))
     run_benchmark.add_argument("--iterations", type=int, default=50)
 
@@ -64,34 +66,45 @@ def main(argv: list[str] | None = None) -> int:
     arguments = parser().parse_args(argv)
     if arguments.command == "normalize":
         return _normalize(arguments)
-    environment = load_environment(arguments.environment)
-    if arguments.command == "analyze":
-        analysis_report = Analyzer(environment).analyze()
-        write_report(analysis_report, arguments.out)
-        print(analysis_report.model_dump_json(indent=2))
-        return 0
-    if arguments.command == "what-if":
-        mutations = [_parse_mutation(value) for value in arguments.remove]
-        simulation = Analyzer(environment).what_if(WhatIfRequest(mutations=mutations))
-        write_what_if(simulation, arguments.out)
-        print(simulation.model_dump_json(indent=2))
-        return 0
-    if arguments.command == "benchmark":
-        benchmark_report = benchmark(
-            arguments.environment,
-            arguments.truth,
-            arguments.out,
-            iterations=arguments.iterations,
-        )
-        print(json.dumps(benchmark_report, indent=2, sort_keys=True))
-        return int(
-            benchmark_report["path_recall"] != 1
-            or benchmark_report["path_precision"] != 1
-            or not benchmark_report["deterministic"]
-        )
     if arguments.command == "serve":
         uvicorn.run(create_app(arguments.environment), host=arguments.host, port=arguments.port)
         return 0
+    with ExitStack() as stack:
+        environment_path = arguments.environment or stack.enter_context(
+            packaged_path("data/lab.json")
+        )
+        environment = load_environment(environment_path)
+        if arguments.command == "analyze":
+            analysis_report = Analyzer(environment).analyze()
+            write_report(analysis_report, arguments.out)
+            print(analysis_report.model_dump_json(indent=2))
+            return 0
+        if arguments.command == "what-if":
+            mutations = [_parse_mutation(value) for value in arguments.remove]
+            simulation = Analyzer(environment).what_if(WhatIfRequest(mutations=mutations))
+            write_what_if(simulation, arguments.out)
+            print(simulation.model_dump_json(indent=2))
+            return 0
+        if arguments.command == "benchmark":
+            truth_path = arguments.truth or stack.enter_context(
+                packaged_path("data/ground-truth.json")
+            )
+            benchmark_report = benchmark(
+                environment_path,
+                truth_path,
+                arguments.out,
+                iterations=arguments.iterations,
+            )
+            print(json.dumps(benchmark_report, indent=2, sort_keys=True))
+            return int(
+                benchmark_report["path_recall"] != 1
+                or benchmark_report["path_precision"] != 1
+                or benchmark_report["edge_recall"] != 1
+                or benchmark_report["edge_precision"] != 1
+                or not benchmark_report["path_risk_matches"]
+                or not benchmark_report["risk_summary_matches"]
+                or not benchmark_report["deterministic"]
+            )
     raise AssertionError("unreachable command")
 
 

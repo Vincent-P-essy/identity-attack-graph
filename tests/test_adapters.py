@@ -29,6 +29,7 @@ def test_aws_authorization_details_adapter(repository_root: Path) -> None:
     assert developer.groups == ("aws:group:developers",)
     assert developer.policies[0].actions == ("lambda:UpdateFunctionCode",)
     assert role.trust_principals == ("lambda.amazonaws.com",)
+    assert role.trust_policy[0].principals == ("lambda.amazonaws.com",)
     assert groups[0].policies[0].actions == ("lambda:ListFunctions",)
 
 
@@ -66,6 +67,54 @@ def test_aws_adapter_resolves_managed_policy_and_boundary() -> None:
     assert identities[0].permissions_boundary[0].actions == ("s3:GetObject",)
     with pytest.raises(ValueError, match="policy document"):
         _document(42)
+
+
+def test_aws_adapter_retains_unresolved_policy_references_fail_closed() -> None:
+    missing = "arn:aws:iam::111122223333:policy/Missing"
+    payload = {
+        "UserDetailList": [
+            {
+                "UserName": "bounded",
+                "AttachedManagedPolicies": [{"PolicyArn": missing}],
+                "PermissionsBoundary": {"PermissionsBoundaryArn": missing},
+            }
+        ]
+    }
+    identities, _ = import_aws_authorization_details(payload, account_id="111122223333")
+    assert identities[0].unresolved_policy_references
+    assert identities[0].unresolved_boundary_reference
+
+    with pytest.raises(ValueError, match="truncated"):
+        import_aws_authorization_details({"IsTruncated": True}, account_id="111122223333")
+
+
+def test_aws_adapter_retains_trust_conditions_and_denies() -> None:
+    payload = {
+        "RoleDetailList": [
+            {
+                "RoleName": "target",
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Action": "sts:AssumeRole",
+                            "Principal": {"AWS": "arn:aws:iam::111122223333:user/caller"},
+                            "Condition": {"StringEquals": {"sts:ExternalId": "required"}},
+                        },
+                        {
+                            "Effect": "Deny",
+                            "Action": "sts:AssumeRole",
+                            "Principal": {"AWS": "arn:aws:iam::111122223333:user/blocked"},
+                        },
+                    ]
+                },
+            }
+        ]
+    }
+    identities, _ = import_aws_authorization_details(payload, account_id="111122223333")
+    statements = identities[0].trust_policy
+    assert statements[0].conditions == {"StringEquals": {"sts:ExternalId": "required"}}
+    assert statements[1].effect.value == "Deny"
 
 
 def test_kubernetes_yaml_adapter(repository_root: Path) -> None:

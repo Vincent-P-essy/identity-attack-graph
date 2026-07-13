@@ -1,41 +1,199 @@
 {
-  "schema_version": "1.0",
-  "description": "Manually reviewed semantic paths in the synthetic lab fixture.",
+  "schema_version": "1.1",
+  "description": "Manually reviewed semantic paths, evidence-bound edges, and risk outputs in the synthetic lab fixture.",
   "paths": [
     {
       "entrypoint": "aws:user:developer",
       "target": "aws:secret:admin-token",
-      "nodes": ["aws:user:developer", "aws:lambda:payroll-api", "aws:role:payroll-runtime", "aws:secret:admin-token"]
+      "nodes": [
+        "aws:user:developer",
+        "aws:lambda:payroll-api",
+        "aws:role:payroll-runtime",
+        "aws:secret:admin-token"
+      ],
+      "edge_kinds": ["lambda_code_execution", "executes_as", "read_secret"],
+      "risk": 84.672
     },
     {
       "entrypoint": "aws:user:developer",
       "target": "aws:secret:payroll-db",
-      "nodes": ["aws:user:developer", "aws:role:security-audit", "aws:secret:payroll-db"]
+      "nodes": [
+        "aws:user:developer",
+        "aws:role:security-audit",
+        "aws:secret:payroll-db"
+      ],
+      "edge_kinds": ["assume_role", "read_secret"],
+      "risk": 81.254
     },
     {
       "entrypoint": "aws:user:ci-runner",
       "target": "aws:secret:payroll-db",
-      "nodes": ["aws:user:ci-runner", "aws:role:deployment-runtime", "aws:secret:payroll-db"]
+      "nodes": [
+        "aws:user:ci-runner",
+        "aws:role:deployment-runtime",
+        "aws:secret:payroll-db"
+      ],
+      "edge_kinds": ["pass_role_via_lambda", "read_secret"],
+      "risk": 66.823
     },
     {
       "entrypoint": "k8s:user:developer",
       "target": "k8s:privilege:cluster-admin",
-      "nodes": ["k8s:user:developer", "k8s:privilege:cluster-admin"]
+      "nodes": ["k8s:user:developer", "k8s:privilege:cluster-admin"],
+      "edge_kinds": ["bind_cluster_admin"],
+      "risk": 94.0
     },
     {
       "entrypoint": "k8s:user:developer",
       "target": "k8s:secret:payroll:database",
-      "nodes": ["k8s:user:developer", "k8s:secret:payroll:database"]
+      "nodes": ["k8s:user:developer", "k8s:secret:payroll:database"],
+      "edge_kinds": ["mount_secret_via_pod"],
+      "risk": 71.82
     },
     {
       "entrypoint": "k8s:user:developer",
       "target": "k8s:secret:payroll:database",
-      "nodes": ["k8s:user:developer", "k8s:sa:payroll:web", "k8s:secret:payroll:database"]
+      "nodes": [
+        "k8s:user:developer",
+        "k8s:sa:payroll:web",
+        "k8s:secret:payroll:database"
+      ],
+      "edge_kinds": ["exec_as_service_account", "read_kubernetes_secret"],
+      "risk": 63.504
     },
     {
       "entrypoint": "k8s:user:developer",
       "target": "k8s:host:worker-1",
-      "nodes": ["k8s:user:developer", "k8s:host:worker-1"]
+      "nodes": ["k8s:user:developer", "k8s:host:worker-1"],
+      "edge_kinds": ["privileged_pod_host_access"],
+      "risk": 54.0
     }
-  ]
+  ],
+  "edges": [
+    {
+      "source": "aws:role:payroll-runtime",
+      "target": "aws:secret:admin-token",
+      "kind": "read_secret",
+      "evidence": [
+        "identity:runtime-read-admin-token:Allow",
+        "scp:scp-full-access-lab:Allow"
+      ]
+    },
+    {
+      "source": "k8s:user:developer",
+      "target": "k8s:sa:payroll:web",
+      "kind": "exec_as_service_account",
+      "evidence": [
+        "binding:k8s:binding:payroll:developer/role:k8s:role:payroll:developer/rule:payroll-developer-create-pods"
+      ]
+    },
+    {
+      "source": "k8s:privilege:cluster-admin",
+      "target": "k8s:host:worker-1",
+      "kind": "cluster_admin_access",
+      "evidence": ["kubernetes:cluster-admin"]
+    },
+    {
+      "source": "k8s:user:developer",
+      "target": "k8s:privilege:cluster-admin",
+      "kind": "bind_cluster_admin",
+      "evidence": [
+        "binding:k8s:cluster-binding:developer-delegator/role:k8s:cluster-role:rbac-delegator/rule:delegator-bind-cluster-admin",
+        "binding:k8s:cluster-binding:developer-delegator/role:k8s:cluster-role:rbac-delegator/rule:delegator-create-cluster-binding"
+      ]
+    },
+    {
+      "source": "aws:role:deployment-runtime",
+      "target": "aws:secret:payroll-db",
+      "kind": "read_secret",
+      "evidence": [
+        "identity:deployment-read-payroll-secret:Allow",
+        "scp:scp-full-access-lab:Allow"
+      ]
+    },
+    {
+      "source": "aws:role:security-audit",
+      "target": "aws:secret:payroll-db",
+      "kind": "read_secret",
+      "evidence": [
+        "identity:audit-read-payroll-secret:Allow",
+        "scp:scp-full-access-lab:Allow"
+      ]
+    },
+    {
+      "source": "k8s:user:developer",
+      "target": "k8s:host:worker-1",
+      "kind": "privileged_pod_host_access",
+      "evidence": [
+        "admission:privileged-pods-allowed",
+        "binding:k8s:binding:payroll:developer/role:k8s:role:payroll:developer/rule:payroll-developer-create-pods"
+      ]
+    },
+    {
+      "source": "aws:user:developer",
+      "target": "aws:role:security-audit",
+      "kind": "assume_role",
+      "evidence": [
+        "boundary:developer-boundary:Allow",
+        "identity:dev-assume-audit:Allow",
+        "scp:scp-full-access-lab:Allow",
+        "trust:aws:role:security-audit"
+      ]
+    },
+    {
+      "source": "k8s:sa:payroll:web",
+      "target": "k8s:secret:payroll:database",
+      "kind": "read_kubernetes_secret",
+      "evidence": [
+        "binding:k8s:binding:payroll:web-secret-reader/role:k8s:role:payroll:secret-reader/rule:payroll-secret-read"
+      ]
+    },
+    {
+      "source": "k8s:privilege:cluster-admin",
+      "target": "k8s:secret:payroll:database",
+      "kind": "cluster_admin_access",
+      "evidence": ["kubernetes:cluster-admin"]
+    },
+    {
+      "source": "aws:user:developer",
+      "target": "aws:lambda:payroll-api",
+      "kind": "lambda_code_execution",
+      "evidence": [
+        "boundary:developer-boundary:Allow",
+        "identity:dev-lambda-deploy:Allow",
+        "scp:scp-full-access-lab:Allow"
+      ]
+    },
+    {
+      "source": "k8s:user:developer",
+      "target": "k8s:secret:payroll:database",
+      "kind": "mount_secret_via_pod",
+      "evidence": [
+        "binding:k8s:binding:payroll:developer/role:k8s:role:payroll:developer/rule:payroll-developer-create-pods"
+      ]
+    },
+    {
+      "source": "aws:lambda:payroll-api",
+      "target": "aws:role:payroll-runtime",
+      "kind": "executes_as",
+      "evidence": ["resource:aws:lambda:payroll-api:execution_role"]
+    },
+    {
+      "source": "aws:user:ci-runner",
+      "target": "aws:role:deployment-runtime",
+      "kind": "pass_role_via_lambda",
+      "evidence": [
+        "identity:ci-create-function:Allow",
+        "identity:ci-pass-deployment-role:Allow",
+        "scp:scp-full-access-lab:Allow",
+        "trust:aws:role:deployment-runtime"
+      ]
+    }
+  ],
+  "risk_summary": {
+    "path_count": 7,
+    "maximum_path_risk": 94.0,
+    "aggregate_risk": 97.42,
+    "crown_jewels_reachable": 5
+  }
 }

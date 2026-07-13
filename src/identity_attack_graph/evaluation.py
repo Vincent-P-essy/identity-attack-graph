@@ -12,6 +12,7 @@ from .models import (
     PermissionEvaluation,
     PolicyStatement,
     Provider,
+    TrustStatement,
 )
 
 
@@ -55,10 +56,14 @@ class AwsEvaluator:
             )
         request_context = context or {}
         identity_statements = list(principal.policies)
+        unresolved = list(principal.unresolved_policy_references)
+        if principal.unresolved_boundary_reference:
+            unresolved.append(principal.unresolved_boundary_reference)
         for group_id in principal.groups:
             group = self.groups.get(group_id)
             if group is not None:
                 identity_statements.extend(group.policies)
+                unresolved.extend(group.unresolved_policy_references)
 
         layers = [
             ("identity", identity_statements, False),
@@ -66,7 +71,7 @@ class AwsEvaluator:
             ("scp", list(self.environment.service_control_policy), True),
         ]
         evidence: list[str] = []
-        unknown: list[str] = []
+        unknown = [f"unresolved policy reference: {item}" for item in unresolved]
 
         for layer_name, statements, _intersection in layers:
             for statement in statements:
@@ -134,30 +139,122 @@ class AwsEvaluator:
             evidence=tuple(evidence),
         )
 
-    def can_assume(self, principal: Identity, role: Identity) -> PermissionEvaluation:
+    def can_assume(
+        self, principal: Identity, role: Identity, context: dict[str, str] | None = None
+    ) -> PermissionEvaluation:
         target = role.arn or role.id
-        permission = self.evaluate(principal.id, "sts:AssumeRole", target)
+        permission = self.evaluate(principal.id, "sts:AssumeRole", target, context)
         if permission.decision is not PermissionDecision.ALLOW:
             return permission
-        candidates = (principal.id, principal.arn or "")
-        trusted = any(
-            candidate
-            and any(fnmatch.fnmatchcase(candidate, pattern) for pattern in role.trust_principals)
-            for candidate in candidates
+        trust_context = dict(context or {})
+        if principal.arn:
+            trust_context.setdefault("aws:PrincipalArn", principal.arn)
+            account_id = _arn_account(principal.arn)
+            if account_id:
+                trust_context.setdefault("aws:PrincipalAccount", account_id)
+        trust = self._evaluate_trust(
+            role,
+            "sts:AssumeRole",
+            (principal.id, principal.arn or ""),
+            trust_context,
         )
-        if not trusted:
-            return PermissionEvaluation(
-                decision=PermissionDecision.IMPLICIT_DENY,
-                action="sts:AssumeRole",
-                resource=target,
-                evidence=permission.evidence,
-            )
+        if trust.decision is not PermissionDecision.ALLOW:
+            return trust.model_copy(update={"evidence": (*permission.evidence, *trust.evidence)})
         return PermissionEvaluation(
             decision=PermissionDecision.ALLOW,
             action="sts:AssumeRole",
             resource=target,
-            evidence=(*permission.evidence, f"trust:{role.id}"),
+            evidence=(*permission.evidence, *trust.evidence),
         )
+
+    def trusts_service(
+        self, role: Identity, service: str, context: dict[str, str] | None = None
+    ) -> PermissionEvaluation:
+        return self._evaluate_trust(
+            role,
+            "sts:AssumeRole",
+            (service,),
+            dict(context or {}),
+        )
+
+    def _evaluate_trust(
+        self,
+        role: Identity,
+        action: str,
+        candidates: tuple[str, ...],
+        context: dict[str, str],
+    ) -> PermissionEvaluation:
+        target = role.arn or role.id
+        if not role.trust_policy:
+            trusted = any(
+                candidate
+                and any(
+                    fnmatch.fnmatchcase(candidate, pattern) for pattern in role.trust_principals
+                )
+                for candidate in candidates
+            )
+            decision = (
+                PermissionDecision.UNKNOWN
+                if role.unresolved_trust_semantics
+                else (PermissionDecision.ALLOW if trusted else PermissionDecision.IMPLICIT_DENY)
+            )
+            return PermissionEvaluation(
+                decision=decision,
+                action=action,
+                resource=target,
+                evidence=(f"trust:{role.id}",) if trusted else (),
+                unknown_reasons=tuple(sorted(set(role.unresolved_trust_semantics))),
+            )
+
+        unknown = list(role.unresolved_trust_semantics)
+        allows: list[str] = []
+        for statement in role.trust_policy:
+            matched = self._trust_statement_matches(statement, action, candidates, context)
+            if matched.unknown:
+                unknown.append(f"{statement.id}: {matched.unknown}")
+            if not matched.applies:
+                continue
+            evidence = f"trust:{statement.id}:{statement.effect.value}"
+            if statement.effect is Effect.DENY:
+                return PermissionEvaluation(
+                    decision=PermissionDecision.EXPLICIT_DENY,
+                    action=action,
+                    resource=target,
+                    evidence=(evidence,),
+                    unknown_reasons=tuple(sorted(set(unknown))),
+                )
+            allows.append(evidence)
+        if unknown:
+            decision = PermissionDecision.UNKNOWN
+        elif allows:
+            decision = PermissionDecision.ALLOW
+        else:
+            decision = PermissionDecision.IMPLICIT_DENY
+        return PermissionEvaluation(
+            decision=decision,
+            action=action,
+            resource=target,
+            evidence=tuple(allows),
+            unknown_reasons=tuple(sorted(set(unknown))),
+        )
+
+    def _trust_statement_matches(
+        self,
+        statement: TrustStatement,
+        action: str,
+        candidates: tuple[str, ...],
+        context: dict[str, str],
+    ) -> StatementMatch:
+        if not any(_action_matches(pattern, action) for pattern in statement.actions):
+            return StatementMatch(False)
+        if not any(
+            _trust_principal_matches(pattern, candidate)
+            for pattern in statement.principals
+            for candidate in candidates
+            if candidate
+        ):
+            return StatementMatch(False)
+        return _conditions_match(statement.conditions, context)
 
     def _allows(
         self,
@@ -192,21 +289,7 @@ class AwsEvaluator:
             return StatementMatch(False)
         if not any(_resource_matches(pattern, resource) for pattern in statement.resources):
             return StatementMatch(False)
-        for operator, conditions in statement.conditions.items():
-            if operator not in {"StringEquals", "StringLike"}:
-                return StatementMatch(False, f"condition operator {operator} is unsupported")
-            for key, expected_raw in conditions.items():
-                actual = context.get(key)
-                expected = [expected_raw] if isinstance(expected_raw, str) else expected_raw
-                if actual is None:
-                    return StatementMatch(False)
-                if operator == "StringEquals" and actual not in expected:
-                    return StatementMatch(False)
-                if operator == "StringLike" and not any(
-                    fnmatch.fnmatchcase(actual, pattern) for pattern in expected
-                ):
-                    return StatementMatch(False)
-        return StatementMatch(True)
+        return _conditions_match(statement.conditions, context)
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,3 +353,36 @@ class KubernetesEvaluator:
 
 def _k8s_matches(patterns: tuple[str, ...], value: str) -> bool:
     return "*" in patterns or value in patterns
+
+
+def _conditions_match(
+    conditions: dict[str, dict[str, str | list[str]]], context: dict[str, str]
+) -> StatementMatch:
+    for operator, entries in conditions.items():
+        if operator not in {"StringEquals", "StringLike"}:
+            return StatementMatch(False, f"condition operator {operator} is unsupported")
+        for key, expected_raw in entries.items():
+            actual = context.get(key)
+            expected = [expected_raw] if isinstance(expected_raw, str) else expected_raw
+            if actual is None:
+                return StatementMatch(False)
+            if operator == "StringEquals" and actual not in expected:
+                return StatementMatch(False)
+            if operator == "StringLike" and not any(
+                fnmatch.fnmatchcase(actual, pattern) for pattern in expected
+            ):
+                return StatementMatch(False)
+    return StatementMatch(True)
+
+
+def _arn_account(value: str) -> str:
+    parts = value.split(":", 5)
+    return parts[4] if len(parts) == 6 and parts[0] == "arn" else ""
+
+
+def _trust_principal_matches(pattern: str, candidate: str) -> bool:
+    if pattern == "*" or pattern == candidate:
+        return True
+    if pattern.endswith(":root"):
+        return bool(_arn_account(pattern)) and _arn_account(pattern) == _arn_account(candidate)
+    return False
