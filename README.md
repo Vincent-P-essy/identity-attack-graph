@@ -17,6 +17,12 @@ permissions or causality. It is a portfolio-grade analysis prototype over
 synthetic data, not a replacement for AWS IAM Access Analyzer, Kubernetes
 authorization checks, or a production cloud-security platform.
 
+## Running example
+
+![identity-attack-graph running locally](docs/screenshots/application.png)
+
+Privilege paths computed from the bundled IAM and Kubernetes fixtures. [Commands and test results](docs/verification.md).
+
 ## Measured evidence
 
 | Measurement | Reviewed result | Scope |
