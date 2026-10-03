@@ -17,11 +17,13 @@ permissions or causality. It is a portfolio-grade analysis prototype over
 synthetic data, not a replacement for AWS IAM Access Analyzer, Kubernetes
 authorization checks, or a production cloud-security platform.
 
-## Running example
+## Dashboard Preview
 
-![identity-attack-graph running locally](docs/screenshots/application.png)
+![Identity attack paths computed from repository fixtures](docs/screenshots/dashboard-overview.png)
 
-Privilege paths computed from the bundled IAM and Kubernetes fixtures. [Commands and test results](docs/verification.md).
+![Risk and reachability after removing a permission binding](docs/screenshots/policy-simulation.png)
+
+Local analysis of the bundled AWS and Kubernetes fixtures, followed by the interface’s permission-removal simulation.
 
 ## Measured evidence
 
